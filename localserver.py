@@ -35,8 +35,20 @@ def listen():
 
 
 def main():
-    # Add initial records
-    # These can be found in the test cases diagram
+    # Add initial records from test cases diagram
+    rr_table = RRTable()
+
+    initial_records = [
+        ("www.csusm.edu", "A", "144.37.5.45", None, 1),
+        ("my.csusm.edu", "A", "144.37.5.150", None, 1),
+        ("amazone.com", "NS", "dns.amazone.com", None, 1),
+        ("dns.amazone.com", "A", "127.0.0.1", None, 1)
+    ]
+
+    for record in initial_records:
+        rr_table.add_record(*record)
+    # testing display table, uncomment if you want to test as well
+    # rr_table.display_table()
 
     local_dns_address = ("127.0.0.1", 21000)
     # Bind address to UDP socket
@@ -58,7 +70,10 @@ def deserialize():
 
 class RRTable:
     def __init__(self):
-        # self.records = ?
+        # records table should look something like this, can probably build out using add_record + loop
+        self.records = []
+        # {"name": "www.csusum.edu", "type": "A", "result": "144.37.5.45", "ttl": None, "static": 1}
+
         self.record_number = 0
 
         # Start the background thread
@@ -66,8 +81,20 @@ class RRTable:
         self.thread = threading.Thread(target=self.__decrement_ttl, daemon=True)
         self.thread.start()
 
-    def add_record(self):
+    def add_record(self, name, type, result, ttl, static):
         with self.lock:
+            self.record_number += 1
+
+            record = {
+                "record_number": self.record_number,
+                "name": name,
+                "type": type,
+                "result": result,
+                "ttl": ttl,
+                "static": static
+            }
+
+            self.records.append(record)
             pass
 
     def get_record(self):
@@ -78,6 +105,25 @@ class RRTable:
         with self.lock:
             # Display the table in the following format (include the column names):
             # record_number,name,type,result,ttl,static
+
+            # TODO: i feel like we should format like this (even though starter code above is different)
+            # print("#, Name, Type, Result, TTL, Static")
+
+            # for record in self.records:
+            #     print(
+            #         f"{record['record_number']:<{10}}"
+            #         f"{record['name']:<{10}}"
+            #         f"{record['type']:<{10}}"
+            #         f"{record['result']:<{10}}"
+            #         f"{str(record['ttl']):^{10}}"
+            #         f"{str(record['static']):^{10}}"
+            #     )
+
+            # column names
+            print("#, Name, Type, Result, TTL, Static")
+
+            for record in self.records:
+                print(f"{record['record_number']}, {record['name']}, {record['type']}, {record['result']}, {record['ttl']}, {record['static']}")
             pass
 
     def __decrement_ttl(self):
