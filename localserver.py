@@ -48,10 +48,10 @@ def main():
     for record in initial_records:
         rr_table.add_record(*record)
     # testing display table, uncomment if you want to test as well
-    rr_table.display_table()
-    print(rr_table.get_record("www.csusm.edu", "A"))
+    # rr_table.display_table()
+    # print(rr_table.get_record("www.csusm.edu", "A"))
     # print(rr_table.get_record("amazone.com", "NS"))
-    # print(rr_table.get_record("test.com"), "A")
+    # print(rr_table.get_record("test.com", "A"))
 
     local_dns_address = ("127.0.0.1", 21000)
     # Bind address to UDP socket
@@ -103,14 +103,11 @@ class RRTable:
     # letting user specify type (extra credit in client.py)  
     def get_record(self, name, type):
         with self.lock:
-            print("User requests:", name, type)
             # TODO: this doesnt loop through all the records
             # i think i just messed up on the dict
             for record in self.records:
                 if record["name"] == name and record["type"] == type:
                     return record
-                else:
-                    return None
             pass
 
     def display_table(self):
