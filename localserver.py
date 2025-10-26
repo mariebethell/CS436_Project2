@@ -4,34 +4,47 @@ import sys
 import threading
 import time
 
+# passing rr_table as a parameter (maybe a better way around this?)
+def listen(rr_table):
+    udp_connection = UDPConnection(timeout=1)
 
-def listen():
     try:
+        udp_connection.bind(('127.0.0.1', 21000))
+
         while True:
             # Wait for query
+            query, client_address = udp_connection.receive_message()
+            print(f"Query from {client_address}: {query}")
 
             # Check RR table for record
+            record = rr_table.get_record(query['domain_name'], 'A')
 
-            # If not found, ask the authoritative DNS server of the requested hostname/domain
+            if record:
+                response = serialize(record)
+                udp_connection.send_message(response, client_address)
+            else:
+                # If not found, ask the authoritative DNS server of the requested hostname/domain
+                amazone_dns_address = ("127.0.0.1", 22000)
+                udp_connection.send_message(query, amazone_dns_address)
 
             # This means parsing the query to get the domain (e.g. amazone.com from shop.amazone.com)
             # With the domain, you can do a self lookup to get the NS record of the domain (e.g. dns.amazone.com)
             # With the server name, you can do a self lookup to get the IP address (e.g. 127.0.0.1)
 
-            # When sending a query to the authoritative DNS server, use port 22000
-
+            # TODO:
             # Then save the record if valid
             # Else, add "Record not found" in the DNS response
 
             # The format of the DNS query and response is in the project description
 
             # Display RR table
+            rr_table.display_table()
             pass
     except KeyboardInterrupt:
         print("Keyboard interrupt received, exiting...")
     finally:
         # Close UDP socket
-        pass
+        udp_connection.close()
 
 
 def main():
@@ -56,27 +69,31 @@ def main():
     local_dns_address = ("127.0.0.1", 21000)
     # Bind address to UDP socket
 
-    listen()
+    listen(rr_table)
 
 
-def serialize():
+def serialize(record):
     # Consider creating a serialize function
     # This can help prepare data to send through the socket
-    pass
+    return f"{record['name']},{record['type']},{record['result']},{record['ttl']},{record['static']}"
 
-
-def deserialize():
+def deserialize(data):
     # Consider creating a deserialize function
     # This can help prepare data that is received from the socket
-    pass
+    # separate by commas and return dict
+    fields = data.split(',')
+    return {
+        'name': fields[0],
+        'type': fields[1],
+        'result': fields[2],
+        'ttl': int(fields[3]),
+        'static': int(fields[4])
+    }
 
 
 class RRTable:
     def __init__(self):
-        # records table should look something like this, can probably build out using add_record + loop
         self.records = []
-        # {"name": "www.csusum.edu", "type": "A", "result": "144.37.5.45", "ttl": None, "static": 1}
-
         self.record_number = 0
 
         # Start the background thread
@@ -98,42 +115,24 @@ class RRTable:
             }
 
             self.records.append(record)
-            pass
 
     # letting user specify type (extra credit in client.py)  
     def get_record(self, name, type):
         with self.lock:
-            # TODO: this doesnt loop through all the records
-            # i think i just messed up on the dict
             for record in self.records:
                 if record["name"] == name and record["type"] == type:
                     return record
-            pass
 
     def display_table(self):
         with self.lock:
             # Display the table in the following format (include the column names):
             # record_number,name,type,result,ttl,static
 
-            # TODO: i feel like we should format like this (even though starter code above is different)
-            # print("#, Name, Type, Result, TTL, Static")
-
-            # for record in self.records:
-            #     print(
-            #         f"{record['record_number']:<{10}}"
-            #         f"{record['name']:<{10}}"
-            #         f"{record['type']:<{10}}"
-            #         f"{record['result']:<{10}}"
-            #         f"{str(record['ttl']):^{10}}"
-            #         f"{str(record['static']):^{10}}"
-            #     )
-
-            # column names
-            print("#, Name, Type, Result, TTL, Static")
+            # column names (from project descriptiion)
+            print("record_no,name,type,result,ttl,static")
 
             for record in self.records:
-                print(f"{record['record_number']}, {record['name']}, {record['type']}, {record['result']}, {record['ttl']}, {record['static']}")
-            pass
+                print(f"{record['record_number']},{record['name']},{record['type']},{record['result']},{record['ttl']},{record['static']}")
 
     def __decrement_ttl(self):
         while True:
