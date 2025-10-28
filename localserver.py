@@ -18,24 +18,46 @@ def listen(rr_table):
             print(f"Query from {client_address}: {query_data}")
 
             # Check RR table for record
-            record = rr_table.get_record(query_data['name'], query_data['type'])
+            name = query["question"]["name"]
+            query_type = query["question"]["type"]
+            record = rr_table.get_record(name, query_type)
 
-            if record:
-                response = serialize(record)
-                udp_connection.send_message(response, client_address)
-            else:
-                # If not found, ask the authoritative DNS server of the requested hostname/domain
-                amazone_dns_address = ("127.0.0.1", 22000)
-                print("Requesting from authoritative server: ", query_data['name'])
-                udp_connection.send_message(query, amazone_dns_address)
+            # If not found, ask the authoritative DNS server of the requested hostname/domain
+            # TODO: ^
 
             # This means parsing the query to get the domain (e.g. amazone.com from shop.amazone.com)
             # With the domain, you can do a self lookup to get the NS record of the domain (e.g. dns.amazone.com)
             # With the server name, you can do a self lookup to get the IP address (e.g. 127.0.0.1)
 
-            # TODO:
             # Then save the record if valid
             # Else, add "Record not found" in the DNS response
+            if record:
+                response = {
+                    "transaction_id": query["transaction_id"],
+                    "flag": "0001",
+                    "question": query["question"],
+                    "answer": {
+                        "name": record["name"],
+                        "type": record["type"],
+                        "ttl": record["ttl"],
+                        "result": record["result"]
+                    }
+                }
+            else:
+                response = {
+                    "transaction_id": query["transaction_id"],
+                    "flag": "0001",
+                    "question": query["question"],
+                    "answer": {
+                        "name": name,
+                        "type": query_type,
+                        "ttl": 0,
+                        "result": "Record not found"
+                    }
+                }
+
+            # send response
+            udp_connection.send_message(serialize(response), client_address)
 
             # The format of the DNS query and response is in the project description
 
@@ -83,27 +105,35 @@ def main():
     listen(rr_table)
 
 
-def serialize(record):
-    # Consider creating a serialize function
-    # This can help prepare data to send through the socket
-    return f"{record['name']},{record['type']},{record['result']},{record['ttl']},{record['static']}"
+def serialize(message: dict) -> str:
+    # converting from DNS format (dict) to str 
+    # uses provided DNStypes class
+    qname = message["question"]["name"]
+    qtype = DNSTypes.get_type_code(message["question"]["type"])
+    aname = message["answer"].get("name", "")
+    atype = DNSTypes.get_type_code(message["answer"].get("type", ""))
+    ttl = message["answer"].get("ttl", "")
+    result = message["answer"].get("result", "")
+    return f"{message['transaction_id']},{message['flag']},{qname},{qtype},{aname},{atype},{ttl},{result}"
 
-def deserialize(data):
-    # Consider creating a deserialize function
-    # This can help prepare data that is received from the socket
-    # separate by commas and return dict
+
+def deserialize(data: str) -> dict:
+    # converting from string back to DNS dict
     fields = data.split(',')
-    if len(fields) == 2:
-        return {'name': fields[0], 'type': fields[1]}
-    else:
-        return {
-            'name': fields[0],
-            'type': fields[1],
-            'result': fields[2],
-            'ttl': int(fields[3]),
-            'static': int(fields[4])
+    return {
+        "transaction_id": int(fields[0]),
+        "flag": fields[1],
+        "question": {
+            "name": fields[2],
+            "type": DNSTypes.get_type_name(int(fields[3]))
+        },
+        "answer": {
+            "name": fields[4],
+            "type": DNSTypes.get_type_name(int(fields[5])) if fields[5] else "",
+            "ttl": int(fields[6]) if fields[6] else None,
+            "result": fields[7] if len(fields) > 7 else ""
         }
-
+    }
 
 class RRTable:
     def __init__(self):
