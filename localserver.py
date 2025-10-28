@@ -14,10 +14,11 @@ def listen(rr_table):
         while True:
             # Wait for query
             query, client_address = udp_connection.receive_message()
-            print(f"Query from {client_address}: {query}")
+            query_data = serialize(query)
+            print(f"Query from {client_address}: {query_data}")
 
             # Check RR table for record
-            record = rr_table.get_record(query['domain_name'], 'A')
+            record = rr_table.get_record(query_data['name'], query_data['type'])
 
             if record:
                 response = serialize(record)
@@ -25,6 +26,7 @@ def listen(rr_table):
             else:
                 # If not found, ask the authoritative DNS server of the requested hostname/domain
                 amazone_dns_address = ("127.0.0.1", 22000)
+                print("Requesting from authoritative server: ", query_data['name'])
                 udp_connection.send_message(query, amazone_dns_address)
 
             # This means parsing the query to get the domain (e.g. amazone.com from shop.amazone.com)
@@ -51,6 +53,14 @@ def main():
     # Add initial records from test cases diagram
     rr_table = RRTable()
 
+    # testing TTL/expiration, uncomment if you want
+    # rr_table.add_record("temp.com", "A", "2.2.2.2", 3, 0)     # should expire
+    # rr_table.add_record("static.com", "A", "1.1.1.1", 5, 1)   # doesnt expire
+    # for i in range(6):
+    #     print(f"\n After {i} seconds:")
+    #     rr_table.display_table()
+    #     time.sleep(1)
+
     initial_records = [
         ("www.csusm.edu", "A", "144.37.5.45", None, 1),
         ("my.csusm.edu", "A", "144.37.5.150", None, 1),
@@ -60,6 +70,7 @@ def main():
 
     for record in initial_records:
         rr_table.add_record(*record)
+
     # testing display table, uncomment if you want to test as well
     # rr_table.display_table()
     # print(rr_table.get_record("www.csusm.edu", "A"))
@@ -82,13 +93,16 @@ def deserialize(data):
     # This can help prepare data that is received from the socket
     # separate by commas and return dict
     fields = data.split(',')
-    return {
-        'name': fields[0],
-        'type': fields[1],
-        'result': fields[2],
-        'ttl': int(fields[3]),
-        'static': int(fields[4])
-    }
+    if len(fields) == 2:
+        return {'name': fields[0], 'type': fields[1]}
+    else:
+        return {
+            'name': fields[0],
+            'type': fields[1],
+            'result': fields[2],
+            'ttl': int(fields[3]),
+            'static': int(fields[4])
+        }
 
 
 class RRTable:
@@ -143,11 +157,22 @@ class RRTable:
 
     def __remove_expired_records(self):
         # This method is only called within a locked context
+        new_records = []
 
         # Remove expired records
-        # Update record numbers
-        pass
+        for record in self.records:
+            if record['static'] == 0 and record['ttl'] != None:
+                record['ttl'] -= 1
+            
+            # if record is still valid or set to static
+            if record['static'] == 1 or record['ttl'] == None or record['ttl'] > 0:
+                new_records.append(record)
+        self.records = new_records
 
+        # Update record numbers
+        for i, record in enumerate(self.records, start = 1):
+            record['record_number'] = i
+        self.record_number = len(self.records)
 
 class DNSTypes:
     """
