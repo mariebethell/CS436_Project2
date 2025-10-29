@@ -4,39 +4,84 @@ import sys
 import threading
 import time
 
+# passing rr_table as a parameter (maybe a better way around this?)
+def listen(rr_table):
+    udp_connection = UDPConnection(timeout=1)
 
-def listen():
     try:
+        udp_connection.bind(('127.0.0.1', 21000))
+
         while True:
             # Wait for query
+            query, client_address = udp_connection.receive_message()
+            query_data = serialize(query)
+            print(f"Query from {client_address}: {query_data}")
 
             # Check RR table for record
+            name = query["question"]["name"]
+            query_type = query["question"]["type"]
+            record = rr_table.get_record(name, query_type)
 
             # If not found, ask the authoritative DNS server of the requested hostname/domain
+            # TODO: ^
 
             # This means parsing the query to get the domain (e.g. amazone.com from shop.amazone.com)
             # With the domain, you can do a self lookup to get the NS record of the domain (e.g. dns.amazone.com)
             # With the server name, you can do a self lookup to get the IP address (e.g. 127.0.0.1)
 
-            # When sending a query to the authoritative DNS server, use port 22000
-
             # Then save the record if valid
             # Else, add "Record not found" in the DNS response
+            if record:
+                response = {
+                    "transaction_id": query["transaction_id"],
+                    "flag": "0001",
+                    "question": query["question"],
+                    "answer": {
+                        "name": record["name"],
+                        "type": record["type"],
+                        "ttl": record["ttl"],
+                        "result": record["result"]
+                    }
+                }
+            else:
+                response = {
+                    "transaction_id": query["transaction_id"],
+                    "flag": "0001",
+                    "question": query["question"],
+                    "answer": {
+                        "name": name,
+                        "type": query_type,
+                        "ttl": 0,
+                        "result": "Record not found"
+                    }
+                }
+
+            # send response
+            udp_connection.send_message(serialize(response), client_address)
 
             # The format of the DNS query and response is in the project description
 
             # Display RR table
+            rr_table.display_table()
             pass
     except KeyboardInterrupt:
         print("Keyboard interrupt received, exiting...")
     finally:
         # Close UDP socket
-        pass
+        udp_connection.close()
 
 
 def main():
     # Add initial records from test cases diagram
     rr_table = RRTable()
+
+    # testing TTL/expiration, uncomment if you want
+    # rr_table.add_record("temp.com", "A", "2.2.2.2", 3, 0)     # should expire
+    # rr_table.add_record("static.com", "A", "1.1.1.1", 5, 1)   # doesnt expire
+    # for i in range(6):
+    #     print(f"\n After {i} seconds:")
+    #     rr_table.display_table()
+    #     time.sleep(1)
 
     initial_records = [
         ("www.csusm.edu", "A", "144.37.5.45", None, 1),
@@ -47,36 +92,52 @@ def main():
 
     for record in initial_records:
         rr_table.add_record(*record)
+
     # testing display table, uncomment if you want to test as well
-    rr_table.display_table()
-    print(rr_table.get_record("www.csusm.edu", "A"))
+    # rr_table.display_table()
+    # print(rr_table.get_record("www.csusm.edu", "A"))
     # print(rr_table.get_record("amazone.com", "NS"))
-    # print(rr_table.get_record("test.com"), "A")
+    # print(rr_table.get_record("test.com", "A"))
 
     local_dns_address = ("127.0.0.1", 21000)
     # Bind address to UDP socket
 
-    listen()
+    listen(rr_table)
 
 
-def serialize():
-    # Consider creating a serialize function
-    # This can help prepare data to send through the socket
-    pass
+def serialize(message: dict) -> str:
+    # converting from DNS format (dict) to str 
+    # uses provided DNStypes class
+    qname = message["question"]["name"]
+    qtype = DNSTypes.get_type_code(message["question"]["type"])
+    aname = message["answer"].get("name", "")
+    atype = DNSTypes.get_type_code(message["answer"].get("type", ""))
+    ttl = message["answer"].get("ttl", "")
+    result = message["answer"].get("result", "")
+    return f"{message['transaction_id']},{message['flag']},{qname},{qtype},{aname},{atype},{ttl},{result}"
 
 
-def deserialize():
-    # Consider creating a deserialize function
-    # This can help prepare data that is received from the socket
-    pass
-
+def deserialize(data: str) -> dict:
+    # converting from string back to DNS dict
+    fields = data.split(',')
+    return {
+        "transaction_id": int(fields[0]),
+        "flag": fields[1],
+        "question": {
+            "name": fields[2],
+            "type": DNSTypes.get_type_name(int(fields[3]))
+        },
+        "answer": {
+            "name": fields[4],
+            "type": DNSTypes.get_type_name(int(fields[5])) if fields[5] else "",
+            "ttl": int(fields[6]) if fields[6] else None,
+            "result": fields[7] if len(fields) > 7 else ""
+        }
+    }
 
 class RRTable:
     def __init__(self):
-        # records table should look something like this, can probably build out using add_record + loop
         self.records = []
-        # {"name": "www.csusum.edu", "type": "A", "result": "144.37.5.45", "ttl": None, "static": 1}
-
         self.record_number = 0
 
         # Start the background thread
@@ -98,45 +159,24 @@ class RRTable:
             }
 
             self.records.append(record)
-            pass
 
     # letting user specify type (extra credit in client.py)  
     def get_record(self, name, type):
         with self.lock:
-            print("User requests:", name, type)
-            # TODO: this doesnt loop through all the records
-            # i think i just messed up on the dict
             for record in self.records:
                 if record["name"] == name and record["type"] == type:
                     return record
-                else:
-                    return None
-            pass
 
     def display_table(self):
         with self.lock:
             # Display the table in the following format (include the column names):
             # record_number,name,type,result,ttl,static
 
-            # TODO: i feel like we should format like this (even though starter code above is different)
-            # print("#, Name, Type, Result, TTL, Static")
-
-            # for record in self.records:
-            #     print(
-            #         f"{record['record_number']:<{10}}"
-            #         f"{record['name']:<{10}}"
-            #         f"{record['type']:<{10}}"
-            #         f"{record['result']:<{10}}"
-            #         f"{str(record['ttl']):^{10}}"
-            #         f"{str(record['static']):^{10}}"
-            #     )
-
-            # column names
-            print("#, Name, Type, Result, TTL, Static")
+            # column names (from project descriptiion)
+            print("record_no,name,type,result,ttl,static")
 
             for record in self.records:
-                print(f"{record['record_number']}, {record['name']}, {record['type']}, {record['result']}, {record['ttl']}, {record['static']}")
-            pass
+                print(f"{record['record_number']},{record['name']},{record['type']},{record['result']},{record['ttl']},{record['static']}")
 
     def __decrement_ttl(self):
         while True:
@@ -147,11 +187,22 @@ class RRTable:
 
     def __remove_expired_records(self):
         # This method is only called within a locked context
+        new_records = []
 
         # Remove expired records
-        # Update record numbers
-        pass
+        for record in self.records:
+            if record['static'] == 0 and record['ttl'] != None:
+                record['ttl'] -= 1
+            
+            # if record is still valid or set to static
+            if record['static'] == 1 or record['ttl'] == None or record['ttl'] > 0:
+                new_records.append(record)
+        self.records = new_records
 
+        # Update record numbers
+        for i, record in enumerate(self.records, start = 1):
+            record['record_number'] = i
+        self.record_number = len(self.records)
 
 class DNSTypes:
     """
