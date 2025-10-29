@@ -14,7 +14,7 @@ def listen(rr_table):
         while True:
             # Wait for query
             query, client_address = udp_connection.receive_message()
-            query_data = serialize(query)
+            query_data = deserialize(query)
             print(f"Query from {client_address}: {query_data}")
 
             # Check RR table for record
