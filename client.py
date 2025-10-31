@@ -6,10 +6,6 @@ import threading
 import time
 
 def handle_request(rr_table, udp_connection, transaction_id, hostname, qtype):
-    # Default to type A if user did not enter a type
-    if qtype is None:
-        qtype = "A"
-
     # Check RR table for record
     if rr_table.get_record(hostname, qtype) == None:
         print("Record not found on client, asking local DNS server")
@@ -127,7 +123,7 @@ class RRTable:
                 "name": name,
                 "type": type,
                 "result": result,
-                "ttl": 60 if ttl is None else ttl,
+                "ttl": ttl if ttl is not None else 60,  
                 "static": static
             }
 
@@ -146,7 +142,7 @@ class RRTable:
             # Display the table in the following format (include the column names):
             # record_number,name,type,result,ttl,static
 
-            # column names (from project descriptiion)
+            # column names (from project description)
             print("record_no,name,type,result,ttl,static")
 
             for record in self.records:
