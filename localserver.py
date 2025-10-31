@@ -14,12 +14,12 @@ def listen(rr_table):
         while True:
             # Wait for query
             query, client_address = udp_connection.receive_message()
-            query_data = serialize(query)
+            query_data = deserialize(query)
             print(f"Query from {client_address}: {query_data}")
 
             # Check RR table for record
-            name = query["question"]["name"]
-            query_type = query["question"]["type"]
+            name = query_data["question"]["name"]
+            query_type = query_data["question"]["type"]
             record = rr_table.get_record(name, query_type)
 
             # If not found, ask the authoritative DNS server of the requested hostname/domain
@@ -33,9 +33,9 @@ def listen(rr_table):
             # Else, add "Record not found" in the DNS response
             if record:
                 response = {
-                    "transaction_id": query["transaction_id"],
+                    "transaction_id": query_data["transaction_id"],
                     "flag": "0001",
-                    "question": query["question"],
+                    "question": query_data["question"],
                     "answer": {
                         "name": record["name"],
                         "type": record["type"],
@@ -45,9 +45,9 @@ def listen(rr_table):
                 }
             else:
                 response = {
-                    "transaction_id": query["transaction_id"],
+                    "transaction_id": query_data["transaction_id"],
                     "flag": "0001",
-                    "question": query["question"],
+                    "question": query_data["question"],
                     "answer": {
                         "name": name,
                         "type": query_type,
@@ -102,20 +102,35 @@ def main():
     local_dns_address = ("127.0.0.1", 21000)
     # Bind address to UDP socket
 
+    # if you want to test: run with listen uncommented in one terminal
+    # then open new terminal and comment out listen, uncomment test_udp_send
+    # "question" can be changed if you want to test other inputs
     listen(rr_table)
+    #test_udp_send()
+    
 
+def test_udp_send():
+    client = UDPConnection()
+    message = {
+        "transaction_id": 1,
+        "flag": "0000",
+        "question": {"name": "dns.amazone.com", "type": "A"},
+        "answer": {}
+    }
+    client.send_message(serialize(message), ("127.0.0.1", 21000))
+    response, _ = client.receive_message()
+    print("Response from server:", response)
 
 def serialize(message: dict) -> str:
     # converting from DNS format (dict) to str 
     # uses provided DNStypes class
     qname = message["question"]["name"]
-    qtype = DNSTypes.get_type_code(message["question"]["type"])
-    aname = message["answer"].get("name", "")
-    atype = DNSTypes.get_type_code(message["answer"].get("type", ""))
-    ttl = message["answer"].get("ttl", "")
-    result = message["answer"].get("result", "")
+    qtype = DNSTypes.get_type_code(message["question"]["type"]) or 0
+    aname = message.get("answer", {}).get("name", "") or ""
+    atype = DNSTypes.get_type_code(message.get("answer", {}).get("type", "")) or 0
+    ttl = message.get("answer", {}).get("ttl", "") or None
+    result = message.get("answer", {}).get("result", "") or ""
     return f"{message['transaction_id']},{message['flag']},{qname},{qtype},{aname},{atype},{ttl},{result}"
-
 
 def deserialize(data: str) -> dict:
     # converting from string back to DNS dict
@@ -125,12 +140,12 @@ def deserialize(data: str) -> dict:
         "flag": fields[1],
         "question": {
             "name": fields[2],
-            "type": DNSTypes.get_type_name(int(fields[3]))
+            "type": DNSTypes.get_type_name(int(fields[3])) if fields[3] != "" else ""
         },
         "answer": {
             "name": fields[4],
-            "type": DNSTypes.get_type_name(int(fields[5])) if fields[5] else "",
-            "ttl": int(fields[6]) if fields[6] else None,
+            "type": DNSTypes.get_type_name(int(fields[5])) if fields[5] not in ("", "None") else "",
+            "ttl": int(fields[6]) if fields[6] and fields[6] != "None" else None,
             "result": fields[7] if len(fields) > 7 else ""
         }
     }
