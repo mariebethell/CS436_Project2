@@ -3,62 +3,133 @@ import socket
 import sys
 
 
-def listen():
+def listen(rr_table):
+    udp_connection = UDPConnection(timeout=1)
     try:
         while True:
             # Wait for query
-
+            query, local_address = udp_connection.receive_message()
+            query_data = deserialize(query)
+            print(f"Query from {local_address}: {query_data}")
             # Check RR table for record
-
+            name = query["question"]["name"]
+            query_type = query["question"]["type"]
+            record = rr_table.get_record(name, query_type)
             # If not found, add "Record not found" in the DNS response
+            if record:
+                response = {
+                    "transaction_id": query["transaction_id"],
+                    "flag": "0001",
+                    "question": query["question"],
+                    "answer": {
+                        "name": record["name"],
+                        "type": record["type"],
+                        "ttl": record["ttl"],
+                        "result": record["result"]
+                    }
+                }
             # Else, return record in DNS response
+            else:
+                response = {
+                    "transaction_id": query["transaction_id"],
+                    "flag": "0001",
+                    "question": query["question"],
+                    "answer": {
+                        "name": name,
+                        "type": query_type,
+                        "ttl": 0,
+                        "result": "Record not found"
+                    }
+                }
 
             # The format of the DNS query and response is in the project description
-
+            udp_connection.send_message(serialize(response), local_address)
             # Display RR table
+            rr_table.display_table()
             pass
     except KeyboardInterrupt:
         print("Keyboard interrupt received, exiting...")
     finally:
         # Close UDP socket
+        udp_connection.close()
         pass
 
 
 def main():
     # Add initial records
     # These can be found in the test cases diagram
-
+    rr_table = RRTable()
+    rr_table.add_record()
     amazone_dns_address = ("127.0.0.1", 22000)
     # Bind address to UDP socket
-
+    udp_connection = UDPConnection(timeout=1)
+    udp_connection.bind(amazone_dns_address)
     listen()
 
 
-def serialize():
-    # Consider creating a serialize function
-    # This can help prepare data to send through the socket
-    pass
+def serialize(message: dict) -> str:
+    # converting from DNS format (dict) to str 
+    # uses provided DNStypes class
+    qname = message["question"]["name"]
+    qtype = DNSTypes.get_type_code(message["question"]["type"])
+    aname = message["answer"].get("name", "")
+    atype = DNSTypes.get_type_code(message["answer"].get("type", ""))
+    ttl = message["answer"].get("ttl", "")
+    result = message["answer"].get("result", "")
+    return f"{message['transaction_id']},{message['flag']},{qname},{qtype},{aname},{atype},{ttl},{result}"
 
 
-def deserialize():
-    # Consider creating a deserialize function
-    # This can help prepare data that is received from the socket
-    pass
+def deserialize(data: str) -> dict:
+    # converting from string back to DNS dict
+    fields = data.split(',')
+    return {
+        "transaction_id": int(fields[0]),
+        "flag": fields[1],
+        "question": {
+            "name": fields[2],
+            "type": DNSTypes.get_type_name(int(fields[3]))
+        },
+        "answer": {
+            "name": fields[4],
+            "type": DNSTypes.get_type_name(int(fields[5])) if fields[5] else "",
+            "ttl": int(fields[6]) if fields[6] else None,
+            "result": fields[7] if len(fields) > 7 else ""
+        }
+    }
 
 
 class RRTable:
     def __init__(self):
-        # self.records = ?
+        self.records = []
         self.record_number = 0
 
-    def add_record(self):
-        pass
+    def add_record(self, name, type, result, ttl, static):
+        with self.lock:
+            self.record_number += 1
 
-    def get_record(self):
-        pass
+            record = {
+                "record_number": self.record_number,
+                "name": name,
+                "type": type,
+                "result": result,
+                "ttl": ttl,
+                "static": static
+            }
+
+            self.records.append(record)
+
+    def get_record(self, name, type):
+        with self.lock:
+            for record in self.records:
+                if record["name"] == name and record["type"] == type:
+                    return record
 
     def display_table(self):
         # Display the table in the following format (include the column names):
+        print("record_no,name,type,result,ttl,static")
+
+        for record in self.records:
+            print(f"{record['record_number']},{record['name']},{record['type']},{record['result']},{record['ttl']},{record['static']}")
         # record_number,name,type,result,ttl,static
         pass
 
