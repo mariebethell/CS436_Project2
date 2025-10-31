@@ -44,20 +44,11 @@ class RRTable:
             # Display the table in the following format (include the column names):
             # record_number,name,type,result,ttl,static
 
-            print("#, Name, Type, Result, TTL, Static")
+            # column names (from project descriptiion)
+            print("record_no,name,type,result,ttl,static")
 
             for record in self.records:
-                print(
-                    f"{record['record_number']:<{10}}"
-                    f"{record['name']:<{10}}"
-                    f"{record['type']:<{10}}"
-                    f"{record['result']:<{10}}"
-                    f"{str(record['ttl']):^{10}}"
-                    f"{str(record['static']):^{10}}"
-                )
-
-            # column names
-            print("#, Name, Type, Result, TTL, Static")
+                print(f"{record['record_number']},{record['name']},{record['type']},{record['result']},{record['ttl']},{record['static']}")
 
     def __decrement_ttl(self):
         while True:
@@ -68,148 +59,22 @@ class RRTable:
 
     def __remove_expired_records(self):
         # This method is only called within a locked context
+        new_records = []
 
         # Remove expired records
+        for record in self.records:
+            if record['static'] == 0 and record['ttl'] != None:
+                record['ttl'] -= 1
+            
+            # if record is still valid or set to static
+            if record['static'] == 1 or record['ttl'] == None or record['ttl'] > 0:
+                new_records.append(record)
+        self.records = new_records
+
         # Update record numbers
-        pass
-
-    
-# Create RR table
-rr_table = RRTable()
-
-def handle_request(hostname, type):
-    # Check RR table for record
-    if rr_table.get_record(hostname, type) == None:
-        print("not found, asking local DNS server")
-
-        # If not found, ask the local DNS server, then save the record if valid
-        local_dns_address = ("127.0.0.1", 21000)
-
-        # Setup UDP connection
-        udp_connection = UDPConnection()
-
-        # Request record
-        dns_query = {
-            "transaction_id": 0,
-            "flag": "0000",
-            "question_name": hostname,
-            "question_type": type,
-            "answer_name": "",
-            "answer_type": "",
-            "ttl": "",
-            "result": ""
-        }
-
-        udp_connection.send_message(serialize(dns_query), local_dns_address)
-
-        record = deserialize(udp_connection.receive_message()[0])
-
-        rr_table.add_record(record["transaction_id"], record["answer_name"], record["answer_type"], record["result"], record["ttl"], 0)
-
-    # Display RR table
-    rr_table.display_table()
-
-
-def main():
-    try:
-        while True:
-            input_value = input("Enter the hostname (or type 'quit' to exit) ")
-            if input_value.lower() == "quit":
-                break
-
-            hostname = input_value
-            type = None # determine if user enters a type or not
-
-            query_code = DNSTypes.get_type_code("A")
-
-            # For extra credit, let users decide the query type (e.g. A, AAAA, NS, CNAME)
-            # This means input_value will be two values separated by a space
-            if " " in input_value:
-                hostname = input_value.split()[0]
-                type = input_value.split()[1]
-
-            handle_request(hostname, type)
-
-    except KeyboardInterrupt:
-        print("Keyboard interrupt received, exiting...")
-    finally:
-        # Close UDP socket
-        pass
-
-
-def serialize(dns_message):
-    # Consider creating a serialize function
-    # This can help prepare data to send through the socket
-
-    # Turn dns message dict into comma separated string to send through socket
-    serialized_message = ','.join([
-        str(dns_message["transaction_id"]),
-        str(dns_message["flag"]),
-        str(dns_message["question_name"]),
-        str(dns_message["question_type"]),
-        str(dns_message["answer_name"]),
-        str(dns_message["answer_type"]),
-        str(dns_message["ttl"]),
-        str(dns_message["result"])
-    ])
-
-    return serialized_message
-
-
-def deserialize(data):
-    # Consider creating a deserialize function
-    # This can help prepare data that is received from the socket
-    
-    # Turn string from servers back into dict
-    try:
-        dns_message_contents = data.split(',')
-
-        dns_message = {}
-
-        dns_message["flag"] = dns_message_contents[0],
-        dns_message["question_name"] = dns_message_contents[1],
-        dns_message["question_type"] = dns_message_contents[2],
-        dns_message["answer_name"] = dns_message_contents[3],
-        dns_message["answer_type"] = dns_message_contents[4],
-        dns_message["ttl"] = dns_message_contents[5],
-        dns_message["result"] = dns_message_contents[6]
-    except Exception as e:
-        # might change this handling
-        print("Corrupted dns_message returned from server")
-        exit(1)
-
-    return dns_message
-
-class DNSTypes:
-    """
-    A class to manage DNS query types and their corresponding codes.
-
-    Examples:
-    >>> DNSTypes.get_type_code('A')
-    8
-    >>> DNSTypes.get_type_name(0b0100)
-    'AAAA'
-    """
-
-    name_to_code = {
-        "A": 0b1000,
-        "AAAA": 0b0100,
-        "CNAME": 0b0010,
-        "NS": 0b0001,
-    }
-
-    code_to_name = {code: name for name, code in name_to_code.items()}
-
-    @staticmethod
-    def get_type_code(type_name: str):
-        """Gets the code for the given DNS query type name, or None"""
-        return DNSTypes.name_to_code.get(type_name, None)
-
-    @staticmethod
-    def get_type_name(type_code: int):
-        """Gets the DNS query type name for the given code, or None"""
-        return DNSTypes.code_to_name.get(type_code, None)
-
+        for i, record in enumerate(self.records, start = 1):
+            record['record_number'] = i
+        self.record_number = len(self.records)
 
 class UDPConnection:
     """A class to handle UDP socket communication, capable of acting as both a client and a server."""
@@ -261,6 +126,137 @@ class UDPConnection:
     def close(self):
         """Closes the UDP socket."""
         self.socket.close()
+
+    
+# Create RR table
+rr_table = RRTable()
+# Setup UDP connection
+udp_connection = UDPConnection()
+transaction_id = 0
+
+def handle_request(hostname, qtype):
+    global transaction_id
+    # Default to type A if user did not enter a type
+    if qtype is None:
+        qtype = "A"
+
+    # Check RR table for record
+    if rr_table.get_record(hostname, qtype) == None:
+        print("not found, asking local DNS server")
+
+        # If not found, ask the local DNS server, then save the record if valid
+        local_dns_address = ("127.0.0.1", 21000)
+
+        # Request record
+        query = {
+            "transaction_id": transaction_id,
+            "flag": "0000",
+            "question": {
+                "name": hostname,
+                "type": qtype
+            }
+        }
+
+        udp_connection.send_message(serialize(query), local_dns_address)
+
+        record = deserialize(udp_connection.receive_message()[0])
+
+        if record["answer"]["result"] != "Record not found":
+            rr_table.add_record(record["answer"]["name"], record["answer"]["type"], record["answer"]["result"], record["answer"]["ttl"], 0)
+        else:
+            print("Record not found by local DNS server.")
+
+    # Display RR table
+    rr_table.display_table()
+    print()
+    transaction_id += 1 # increment transaction id
+
+
+def main():
+    try:
+        while True:
+            input_value = input("Enter the hostname (or type 'quit' to exit) ")
+            if input_value.lower() == "quit":
+                break
+
+            hostname = input_value
+            type = None # determine if user enters a type or not
+
+            query_code = DNSTypes.get_type_code("A")
+
+            # For extra credit, let users decide the query type (e.g. A, AAAA, NS, CNAME)
+            # This means input_value will be two values separated by a space
+            if " " in input_value:
+                hostname = input_value.split()[0]
+                type = input_value.split()[1]
+
+            handle_request(hostname, type)
+
+    except KeyboardInterrupt:
+        print("Keyboard interrupt received, exiting...")
+    finally:
+        # Close UDP socket
+        pass
+
+
+def serialize(message: dict) -> str:
+    # converting from DNS format (dict) to str 
+    # uses provided DNStypes class
+    qname = message["question"]["name"]
+    qtype = DNSTypes.get_type_code(message["question"]["type"]) or 0
+    aname = message.get("answer", {}).get("name", "") or ""
+    atype = DNSTypes.get_type_code(message.get("answer", {}).get("type", "")) or 0
+    ttl = message.get("answer", {}).get("ttl", "") or None
+    result = message.get("answer", {}).get("result", "") or ""
+    return f"{message['transaction_id']},{message['flag']},{qname},{qtype},{aname},{atype},{ttl},{result}"
+
+def deserialize(data: str) -> dict:
+    # converting from string back to DNS dict
+    fields = data.split(',')
+    return {
+        "transaction_id": int(fields[0]),
+        "flag": fields[1],
+        "question": {
+            "name": fields[2],
+            "type": DNSTypes.get_type_name(int(fields[3])) if fields[3] != "" else ""
+        },
+        "answer": {
+            "name": fields[4],
+            "type": DNSTypes.get_type_name(int(fields[5])) if fields[5] not in ("", "None") else "",
+            "ttl": int(fields[6]) if fields[6] and fields[6] != "None" else None,
+            "result": fields[7] if len(fields) > 7 else ""
+        }
+    }
+
+class DNSTypes:
+    """
+    A class to manage DNS query types and their corresponding codes.
+
+    Examples:
+    >>> DNSTypes.get_type_code('A')
+    8
+    >>> DNSTypes.get_type_name(0b0100)
+    'AAAA'
+    """
+
+    name_to_code = {
+        "A": 0b1000,
+        "AAAA": 0b0100,
+        "CNAME": 0b0010,
+        "NS": 0b0001,
+    }
+
+    code_to_name = {code: name for name, code in name_to_code.items()}
+
+    @staticmethod
+    def get_type_code(type_name: str):
+        """Gets the code for the given DNS query type name, or None"""
+        return DNSTypes.name_to_code.get(type_name, None)
+
+    @staticmethod
+    def get_type_name(type_code: int):
+        """Gets the DNS query type name for the given code, or None"""
+        return DNSTypes.code_to_name.get(type_code, None)
 
 
 if __name__ == "__main__":
