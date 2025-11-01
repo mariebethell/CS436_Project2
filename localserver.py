@@ -10,6 +10,7 @@ def listen(rr_table):
 
     try:
         udp_connection.bind(('127.0.0.1', 21000))
+        authoritative_address = ('127.0.0.1', 22000)
 
         while True:
             # Wait for query
@@ -23,15 +24,22 @@ def listen(rr_table):
             record = rr_table.get_record(name, query_type)
 
             # If not found, ask the authoritative DNS server of the requested hostname/domain
-            # TODO: ^
+            if not record:
+                print(f"Not found locally, querying authoritative server.")
+                udp_connection.send_message(serialize(query_data), authoritative_address)
+                response_data, _ = udp_connection.receive_message()
+                response = deserialize(response_data)
 
-            # This means parsing the query to get the domain (e.g. amazone.com from shop.amazone.com)
-            # With the domain, you can do a self lookup to get the NS record of the domain (e.g. dns.amazone.com)
-            # With the server name, you can do a self lookup to get the IP address (e.g. 127.0.0.1)
-
-            # Then save the record if valid
-            # Else, add "Record not found" in the DNS response
-            if record:
+                # Then save the record if valid
+                if response["answer"]["result"] != "Record not found":
+                    rr_table.add_record(
+                        response["answer"]["name"],
+                        response["answer"]["type"],
+                        response["answer"]["result"],
+                        response["answer"]["ttl"],
+                        static=0
+                    )
+            else:
                 response = {
                     "transaction_id": query_data["transaction_id"],
                     "flag": "0001",
@@ -43,18 +51,22 @@ def listen(rr_table):
                         "result": record["result"]
                     }
                 }
-            else:
-                response = {
-                    "transaction_id": query_data["transaction_id"],
-                    "flag": "0001",
-                    "question": query_data["question"],
-                    "answer": {
-                        "name": name,
-                        "type": query_type,
-                        "ttl": 0,
-                        "result": "Record not found"
+
+            # Else, add "Record not found" in the DNS response
+            # this looks redundant but if no local OR authoritative, build a record not found response
+            if not record:
+                if response["answer"]["result"] == "Record not found":
+                    response = {
+                        "transaction_id": query_data["transaction_id"],
+                        "flag": "0001",
+                        "question": query_data["question"],
+                        "answer": {
+                            "name": name,
+                            "type": query_type,
+                            "ttl": 0,
+                            "result": "Record not found"
+                        }
                     }
-                }
 
             # send response
             udp_connection.send_message(serialize(response), client_address)
@@ -63,7 +75,6 @@ def listen(rr_table):
 
             # Display RR table
             rr_table.display_table()
-            pass
     except KeyboardInterrupt:
         print("Keyboard interrupt received, exiting...")
     finally:
