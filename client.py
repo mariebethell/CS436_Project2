@@ -8,8 +8,6 @@ import time
 def handle_request(rr_table, udp_connection, transaction_id, hostname, qtype):
     # Check RR table for record
     if rr_table.get_record(hostname, qtype) == None:
-        print("Record not found on client, asking local DNS server")
-
         # If not found, ask the local DNS server, then save the record if valid
         local_dns_address = ("127.0.0.1", 21000)
 
@@ -29,12 +27,9 @@ def handle_request(rr_table, udp_connection, transaction_id, hostname, qtype):
 
         if record["answer"]["result"] != "Record not found":
             rr_table.add_record(record["answer"]["name"], record["answer"]["type"], record["answer"]["result"], record["answer"]["ttl"], 0)
-        else:
-            print("Record not found by local DNS server.")
 
     # Display RR table
     rr_table.display_table()
-    print()
     transaction_id += 1 # increment transaction id
 
     return transaction_id
@@ -131,7 +126,6 @@ class RRTable:
 
     def get_record(self, name, type):
         with self.lock:
-            print("User requests:", name, type)
             for record in self.records:
                 if record["name"] == name and record["type"] == type:
                     return record
@@ -148,6 +142,8 @@ class RRTable:
             for record in self.records:
                 print(f"{record['record_number']},{record['name']},{record['type']},{record['result']},{record['ttl']},{record['static']}")
 
+            print()
+    
     def __decrement_ttl(self):
         while True:
             with self.lock:
